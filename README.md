@@ -1,82 +1,86 @@
 # pfUI-ThreatPlates
 
-Module "thirdparty" pour pfUI (Turtle WoW) qui affiche la menace directement sur les nameplates, en utilisant la même API serveur que TW Threatmeter.
+[**English**](README.md) | [Français](README.fr.md)
 
-## En bref
-Sur Turtle WoW, le serveur calcule la menace de chaque joueur et la renvoie aux addons qui la demandent. pfUI-ThreatPlates pose cette information **sur les nameplates** : tu vois d'un coup d'œil, sur chaque mob, où tu en es par rapport au tank, sans ouvrir de fenêtre de menace.
+A "thirdparty" module for pfUI (Turtle WoW) that shows threat directly on nameplates, using the same server API as TW Threatmeter.
 
-Le principe, en quatre temps :
-1. **Demande** : en combat et en groupe, l'addon interroge le serveur toutes les X secondes (`TWT_UDTSv4_TM`, la même requête que TWThreat).
-2. **Réponse** : le serveur renvoie la menace de ta cible et celle des mobs que tu tankes.
-3. **Partage** : l'addon relaie la liste de ta cible au groupe (canal `TWT`, format de TWThreat). Chaque joueur reçoit ainsi la menace des mobs que *les autres* ciblent.
-4. **Affichage** : chaque nameplate est associée à son mob (par GUID, sinon par nom), puis reçoit une fine barre, un texte et, si tu le souhaites, une barre de vie colorée.
+## Overview
+On Turtle WoW the server computes every player's threat and sends it to addons that ask for it. pfUI-ThreatPlates puts that information **on the nameplates**: at a glance, on every mob, you see where you stand relative to the tank, without opening a threat window.
+
+How it works, in four steps:
+1. **Request**: in combat and in a group, the addon queries the server every X seconds (`TWT_UDTSv4_TM`, the same request TWThreat uses).
+2. **Reply**: the server returns the threat list of your target and of the mobs you tank.
+3. **Sharing**: the addon relays your target's list to the group (`TWT` channel, TWThreat format). Every player thus receives the threat of mobs *other people* are targeting.
+4. **Display**: each nameplate is matched to its mob (by GUID, otherwise by name) and gets a thin bar, a text and, optionally, a recoloured health bar.
 
 ```
-serveur ──TWTv4 / TMTv1──▶ toi ──TWTRelayV2 (groupe/raid)──▶ les autres joueurs
-                            │                                   │
-                            └──────▶ nameplates pfUI ◀──────────┘
+server ──TWTv4 / TMTv1──▶ you ──TWTRelayV2 (party/raid)──▶ other players
+                           │                                  │
+                           └──────▶ pfUI nameplates ◀─────────┘
 ```
 
 ## Installation
-1. Installer **pfUI** (obligatoire).
-2. Copier le dossier `pfUI-ThreatPlates` dans `Interface/AddOns/`. Avec le zip GitHub, renommer le dossier `pfUI-ThreatPlates-main` en `pfUI-ThreatPlates`.
-3. Relancer le jeu ou taper `/reload`.
+1. Install **pfUI** (required).
+2. Copy the `pfUI-ThreatPlates` folder into `Interface/AddOns/`. If you downloaded the GitHub zip, rename the `pfUI-ThreatPlates-main` folder to `pfUI-ThreatPlates`.
+3. Restart the game or type `/reload`.
 
-Compatible avec :
-- **pfUI de brues-code + ClassicAPI** (recommandé) : nameplates suivies via `NAME_PLATE_UNIT_ADDED/REMOVED`, GUID via `UnitGUID`.
-- **pfUI d'origine (shagu) + SuperWoW** : GUID via `GetName(1)` sur la nameplate.
-- Sans aucun des deux : seule la nameplate de la cible est fiable.
+Compatible with:
+- **brues-code's pfUI + ClassicAPI** (recommended): nameplates tracked through `NAME_PLATE_UNIT_ADDED/REMOVED`, GUID through `UnitGUID`.
+- **Original pfUI (shagu) + SuperWoW**: GUID through `GetName(1)` on the nameplate.
+- Neither: only the target's nameplate is reliable.
 
-TWThreat est facultatif. S'il est présent, les deux addons se partagent le travail sans doublon.
+TWThreat is optional. When it is present, both addons split the work without duplicating messages.
 
-Réglages : `/pfui` → **Thirdparty** → **Threat Plates** (activation, rôle, intervalle, partage, position de la barre, seuils, couleurs).
+Settings: `/pfui` → **Thirdparty** → **Threat Plates** (enable, role, query interval, sharing, bar position, thresholds, colors).
 
-## Fonctionnement
-Toutes les X secondes en combat et en groupe, l'addon envoie la requête `TWT_UDTSv4_TM` au serveur (comme TWThreat en mode tank). Le serveur répond avec :
-- la liste de menace de ta **cible** (`TWTv4=`) ;
-- la liste de **tous les mobs que tu tankes**, avec le joueur suivant et son % (`TMTv1=`).
+## What you see
+Each nameplate gets a thin threat bar (by default just **above** the health bar; position and spacing are adjustable) and a text:
 
-Affichage sur la nameplate : une fine barre de menace (par défaut juste **au-dessus** de la barre de vie, position et espacement réglables) + un texte :
-| Situation | Affichage |
+| Situation | Display |
 |---|---|
-| Tu n'as pas l'aggro | ton % de menace par rapport au tank (vert → rouge) |
-| Tu as l'aggro (rôle Auto/Tank) | joueur suivant + son % (rouge = il va te la prendre) |
-| Tu as l'aggro (rôle DPS/Soigneur) | `AGGRO` |
-| Rôle Tank, aggro perdue | nom du tank actuel + ton %, couleur "aggro perdue" |
+| You do not have aggro | your threat % relative to the tank (green → red) |
+| You have aggro (role Auto/Tank) | next player + their % (red = they are about to pull) |
+| You have aggro (role DPS/Healer) | `AGGRO` |
+| Tank role, aggro lost | current tank's name + your %, "aggro lost" color |
 
-### Couleur de la barre de vie (« Colorer la barre de vie selon l'aggro », activé par défaut)
-| Rôle | Situation | Barre de vie |
+### Health bar color ("Color Health Bar By Aggro", on by default)
+| Role | Situation | Health bar |
 |---|---|---|
-| Tank (ou Auto quand tu tiens le mob) | tu tiens l'aggro, suivant sous le seuil | vert |
-| | tu tiens l'aggro, suivant au-dessus du seuil | orange |
-| Tank | aggro perdue | rouge |
-| DPS / Soigneur (ou Auto sans aggro) | menace sous le seuil | couleur pfUI normale |
-| | menace au-dessus du seuil | orange |
-| | tu as l'aggro | rouge |
+| Tank (or Auto while you hold the mob) | you hold aggro, next player below the threshold | green |
+| | you hold aggro, next player above the threshold | orange |
+| Tank | aggro lost | red |
+| DPS / Healer (or Auto without aggro) | threat below the threshold | normal pfUI color |
+| | threat above the threshold | orange |
+| | you have aggro | red |
 
-Seuil d'alerte réglable (80 % par défaut). La fine barre et le texte gardent le dégradé de %.
+The warning threshold is adjustable (80% by default). The thin bar and the text keep the %-based gradient.
 
-## Partage dans le groupe (compatible TWThreat)
-Option « Partager la menace avec le groupe » (activée par défaut). Le partage utilise **le canal et le format de relais de TWThreat** (préfixe `TWT`, version octo-addons 1.3.0-octo1 et suivantes) :
-- **Envoi** : après chaque réponse du serveur, la liste de menace de ta cible part en `TWTRelayV2:<mob>#joueur:tank:menace:%:mêlée;…`, le message que TWThreat utilise pour son « Healer Master Target ». Si TWThreat relaie déjà cette réponse, rien n'est envoyé en double. Si un autre joueur vient de partager la même liste, l'envoi est sauté.
-- **Réception** : les relais de **tout** joueur du groupe, qu'ils viennent de TWThreat ou de pfUI-ThreatPlates. Le mob est identifié par la cible de l'expéditeur (son GUID, vérifié par le nom).
-- **Mode tank** : TWThreat n'a pas d'équivalent ; les tanks équipés de pfUI-ThreatPlates partagent leur liste en `PFTPTankV1:créature:guid:suivant:%;…` sur le même canal (TWThreat l'ignore).
-- **Canal** : toujours `RAID` en raid et `PARTY` en groupe, choisi au moment de chaque envoi ; rien n'est envoyé hors groupe.
-- **Avec TWThreat qui partage déjà** (`/twt share`, octo-addons 1.3.0-octo2 et suivantes) : pfUI-ThreatPlates n'envoie pas de relais en double, il se contente de lire ceux du groupe.
-- **Sans TWThreat** : pfUI-ThreatPlates répond lui-même aux demandes `/twthmt` des soigneurs (`TWT_HMT` / `TWT_HMT_OK` / `TWT_HMT_REM`) et leur relaie la menace, même si le partage est désactivé. Avec TWThreat chargé, c'est lui qui s'en charge.
+## Raw server data
+Every X seconds in combat and in a group the addon sends the `TWT_UDTSv4_TM` request (like TWThreat in tank mode). The server answers with:
+- the threat list of your **target** (`TWTv4=`);
+- the list of **every mob you tank**, with the next player and their % (`TMTv1=`).
 
-## Limites
-- Le serveur ne renvoie le détail que pour **ta cible** + les mobs **que tu tankes**. Sans partage, un DPS ne voit donc sa menace que sur sa cible ; avec le partage, sur tout mob ciblé par un joueur qui relaie (pfUI-ThreatPlates, ou TWThreat quand un soigneur le lui a demandé).
-- Un mob que personne ne relaie reste sans information. Les relais nécessitent ClassicAPI ou SuperWoW pour identifier le mob. Les données partagées ont jusqu'à ~1 s de retard (intervalle des requêtes).
-- Sans ClassicAPI ni SuperWoW, seule la nameplate de la cible est fiable ; les mobs tankés sont associés par nom (seulement si le nom est unique).
-- Pas d'envoi en solo (le serveur ne répond qu'en groupe/raid, comme TWThreat).
-- Si TWThreat tourne aussi, les deux addons interrogent le serveur ; on peut augmenter l'intervalle dans les options.
+## Group sharing (TWThreat compatible)
+Option "Share Threat With Group" (on by default). Sharing uses **TWThreat's channel and relay format** (prefix `TWT`, octo-addons version 1.3.0-octo1 and later):
+- **Sending**: after each server reply, your target's threat list goes out as `TWTRelayV2:<mob>#player:tank:threat:%:melee;…`, the message TWThreat uses for its "Healer Master Target". If TWThreat already relays that reply, nothing is sent twice. If another player just shared the same list, the send is skipped.
+- **Receiving**: relays from **any** group member, whether they come from TWThreat or pfUI-ThreatPlates. The mob is identified through the sender's target (its GUID, checked against the name).
+- **Tank mode**: TWThreat has no equivalent; tanks running pfUI-ThreatPlates share their list as `PFTPTankV1:creature:guid:next:%;…` on the same channel (TWThreat ignores it).
+- **Channel**: always `RAID` in a raid and `PARTY` in a party, chosen at send time; nothing is sent outside a group.
+- **With TWThreat already sharing** (`/twt share`, octo-addons 1.3.0-octo2 and later): pfUI-ThreatPlates does not send duplicate relays, it only reads the group's.
+- **Without TWThreat**: pfUI-ThreatPlates answers healers' `/twthmt` requests itself (`TWT_HMT` / `TWT_HMT_OK` / `TWT_HMT_REM`) and relays threat to them, even if sharing is disabled. When TWThreat is loaded, it handles that instead.
 
-## Dépannage
-- **Rien ne s'affiche** : il faut être en groupe ou en raid et en combat ; vérifier que le module est activé dans les réglages.
-- **Menace visible seulement sur ma cible** : normal sans partage. Activer « Partager la menace avec le groupe », et vérifier que les autres joueurs ont pfUI-ThreatPlates ou TWThreat.
-- **Mauvais mob coloré** : installer ClassicAPI ou SuperWoW pour une association par GUID.
-- **Trop de requêtes** : augmenter l'intervalle dans les options, surtout si TWThreat tourne aussi.
+## Limits
+- The server only returns details for **your target** plus the mobs **you tank**. Without sharing, a DPS therefore only sees threat on their own target; with sharing, on any mob targeted by a player who relays (pfUI-ThreatPlates, or TWThreat when a healer requested it).
+- A mob nobody relays stays without information. Relays need ClassicAPI or SuperWoW to identify the mob. Shared data can be up to ~1 s old (request interval).
+- Without ClassicAPI or SuperWoW only the target's nameplate is reliable; tanked mobs are matched by name (only if the name is unique).
+- Nothing is sent when solo (the server only answers in a party/raid, like TWThreat).
+- If TWThreat is running too, both addons query the server; you can raise the interval in the options.
 
-## Mises à jour
-Les versions sont publiées sur ce dépôt ; remplacer le dossier de l'addon par la dernière version.
+## Troubleshooting
+- **Nothing is displayed**: you must be in a party or raid and in combat; check that the module is enabled in the settings.
+- **Threat only visible on my target**: expected without sharing. Enable "Share Threat With Group" and make sure the other players run pfUI-ThreatPlates or TWThreat.
+- **Wrong mob colored**: install ClassicAPI or SuperWoW so mobs are matched by GUID.
+- **Too many requests**: raise "Query Interval (seconds)", especially if TWThreat also runs.
+
+## Updates
+Releases are published in this repository; replace the addon folder with the latest version.

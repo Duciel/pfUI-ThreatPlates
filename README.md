@@ -55,6 +55,9 @@ Each nameplate gets a thin threat bar (by default just **above** the health bar;
 
 The warning threshold is adjustable (80% by default). The thin bar and the text keep the %-based gradient.
 
+### Short cache when you lose a target
+When you switch or clear your target, the last known threat of the previous mob stays on its nameplate for **1 second** before disappearing, instead of vanishing at once (the data is no longer refreshed, so it is not kept longer). Adjust it with "Keep Threat After Target Loss (seconds, 0 = off)".
+
 ## Raw server data
 Every X seconds in combat and in a group the addon sends the `TWT_UDTSv4_TM` request (like TWThreat in tank mode). The server answers with:
 - the threat list of your **target** (`TWTv4=`);

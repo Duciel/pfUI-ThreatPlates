@@ -16,6 +16,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   pfUI:UpdateConfig("threatplates", nil, "interval",   "1")
   pfUI:UpdateConfig("threatplates", nil, "limit",      "10")
   pfUI:UpdateConfig("threatplates", nil, "share",      "1")
+  pfUI:UpdateConfig("threatplates", nil, "cache",      "1")
   pfUI:UpdateConfig("threatplates", nil, "showbar",    "1")
   pfUI:UpdateConfig("threatplates", nil, "barpos",     "ABOVE")
   pfUI:UpdateConfig("threatplates", nil, "baroffset",  "2")
@@ -142,6 +143,9 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   -- data
   local target = { time = 0 }   -- threat list of current target
   local tanked = {}             -- [serverguid] = { creature, player, perc, time }
+  -- threat of targets we just lost (target switched or cleared), kept for a short while
+  -- [guid or "n:"..name] = { tank, mine, next, nextperc, expires }
+  local recent = {}
 
   -- shared by the group (and our own target list, merged in)
   -- [HEXGUID] = { tank, tanktime, remote, entries = { [player] = { perc, time, rtime } } }
@@ -312,9 +316,41 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   -- -------------------------------------------------------------------------
   -- packet handling
   -- -------------------------------------------------------------------------
+  local function RecentKey(guid, name)
+    if guid then return guid end
+    if name then return "n:" .. name end
+    return nil
+  end
+
+  -- keep the list of the target we are about to lose for C.threatplates.cache seconds
+  local function ArchiveTarget()
+    local now = GetTime()
+    local linger = tonumber(C.threatplates.cache) or 0
+    local key = RecentKey(target.guid, target.name)
+    if linger > 0 and key and target.tank and target.time + STALE > now then
+      local expires = now + linger
+      if target.time + STALE < expires then expires = target.time + STALE end
+      recent[key] = {
+        tank = target.tank, mine = target.mine, next = target.next,
+        nextperc = target.nextperc, expires = expires,
+      }
+    end
+    target.time = 0
+  end
+
+  -- true when the data we hold belongs to another mob than the current target
+  local function TargetChanged()
+    if target.time == 0 then return false end
+    local guid = GetTargetGuid()
+    if guid and target.guid then return guid ~= target.guid end
+    return UnitName("target") ~= target.name
+  end
+
   local function HandleThreatPacket(packet)
     local _, e = strfind(packet, THREAT_API, 1, true)
     if not e then return end
+
+    if TargetChanged() then ArchiveTarget() end
 
     target.time = GetTime()
     target.guid = GetTargetGuid()
@@ -527,6 +563,9 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
     for key, d in pairs(sharedtm) do
       if d.time + STALE < now then sharedtm[key] = nil end
     end
+    for key, d in pairs(recent) do
+      if d.expires < now then recent[key] = nil end
+    end
   end
 
   -- -------------------------------------------------------------------------
@@ -699,6 +738,14 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
 
     if istarget and target.tank then
       local value, text, r, g, b, a = Render(target.tank, target.mine, target.next, target.nextperc)
+      if value then return value, text, r, g, b, a end
+    end
+
+    -- 1b) target we just lost: keep its last known threat for a moment
+    local old
+    if guid then old = recent[guid] elseif name then old = recent["n:" .. name] end
+    if old and old.expires >= now then
+      local value, text, r, g, b, a = Render(old.tank, old.mine, old.next, old.nextperc)
       if value then return value, text, r, g, b, a end
     end
 
@@ -909,11 +956,13 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
       CleanRelayTo()
 
     elseif event == "PLAYER_TARGET_CHANGED" then
-      -- without guids, the old data can't be told apart from the new target
-      if not UnitGUID and not superwow then target.time = 0 end
+      -- the old target's data is kept briefly (cache option), then it is dropped
+      if TargetChanged() then ArchiveTarget() end
+      tp.lastdraw = 0
 
     elseif event == "PLAYER_REGEN_ENABLED" then
       target.time = 0
+      for k in pairs(recent) do recent[k] = nil end
       for k in pairs(tanked) do tanked[k] = nil end
       tankedraw = {}
       HideAll()
@@ -979,6 +1028,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
       CreateConfig(update, L["Query Interval (seconds)"], C.threatplates, "interval")
       CreateConfig(update, L["Threat Entries Requested"], C.threatplates, "limit")
       CreateConfig(update, L["Share Threat With Group"], C.threatplates, "share", "checkbox")
+      CreateConfig(update, L["Keep Threat After Target Loss (seconds, 0 = off)"], C.threatplates, "cache")
 
       CreateConfig(nil, L["Display"], nil, nil, "header")
       CreateConfig(update, L["Show Threat Bar"], C.threatplates, "showbar", "checkbox")

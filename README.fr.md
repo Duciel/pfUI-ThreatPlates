@@ -58,6 +58,9 @@ Affichage sur la nameplate : une fine barre de menace (par défaut juste **au-de
 
 Seuil d'alerte réglable (80 % par défaut). La fine barre et le texte gardent le dégradé de %.
 
+### Cache court à la perte de cible
+Quand tu changes ou perds ta cible, la dernière menace connue de l'ancien mob reste affichée **1 seconde** sur sa nameplate avant de disparaître, au lieu de s'effacer d'un coup (la donnée n'est plus rafraîchie, donc pas gardée plus longtemps). Réglable avec « Keep Threat After Target Loss (seconds, 0 = off) ».
+
 ## Partage dans le groupe (compatible TWThreat)
 Option « Partager la menace avec le groupe » (activée par défaut). Le partage utilise **le canal et le format de relais de TWThreat** (préfixe `TWT`, version octo-addons 1.3.0-octo1 et suivantes) :
 - **Envoi** : après chaque réponse du serveur, la liste de menace de ta cible part en `TWTRelayV2:<mob>#joueur:tank:menace:%:mêlée;…`, le message que TWThreat utilise pour son « Healer Master Target ». Si TWThreat relaie déjà cette réponse, rien n'est envoyé en double. Si un autre joueur vient de partager la même liste, l'envoi est sauté.

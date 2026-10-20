@@ -58,6 +58,16 @@ Affichage sur la nameplate : une fine barre de menace (par défaut juste **au-de
 
 Seuil d'alerte réglable (80 % par défaut). La fine barre et le texte gardent le dégradé de %.
 
+### Mobs sans donnée de menace (« Color Health Bar Without Threat Data (mob target) », activé par défaut)
+Quand personne ne te donne la menace d'un mob, sa barre de vie est quand même colorée selon **qui le mob cible** (mobs hostiles en combat uniquement). La fine barre et le texte restent masqués, faute de chiffre à afficher.
+
+| Rôle | Le mob te cible | Le mob cible quelqu'un d'autre |
+|---|---|---|
+| Tank | vert | rouge (mob perdu) |
+| DPS / Soigneur / Auto | rouge | couleur pfUI normale |
+
+Nécessite ClassicAPI (ou SuperWoW) pour lire la cible du mob sur toutes les nameplates ; sans eux, seule ta cible actuelle est couverte.
+
 ### Cache court à la perte de cible
 Quand tu changes ou perds ta cible, la dernière menace connue de l'ancien mob reste affichée **1 seconde** sur sa nameplate avant de disparaître, au lieu de s'effacer d'un coup (la donnée n'est plus rafraîchie, donc pas gardée plus longtemps). Réglable avec « Keep Threat After Target Loss (seconds, 0 = off) ».
 

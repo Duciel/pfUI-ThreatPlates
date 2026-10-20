@@ -55,6 +55,16 @@ Each nameplate gets a thin threat bar (by default just **above** the health bar;
 
 The warning threshold is adjustable (80% by default). The thin bar and the text keep the %-based gradient.
 
+### Mobs without threat data ("Color Health Bar Without Threat Data (mob target)", on by default)
+When nobody gives you threat for a mob, its health bar is still colored from **who the mob is targeting** (only for hostile mobs in combat). The thin bar and the text stay hidden since there is no number to show.
+
+| Role | Mob targets you | Mob targets someone else |
+|---|---|---|
+| Tank | green | red (mob lost) |
+| DPS / Healer / Auto | red | normal pfUI color |
+
+Needs ClassicAPI (or SuperWoW) to read the mob's target on any nameplate; without them only your current target is covered.
+
 ### Short cache when you lose a target
 When you switch or clear your target, the last known threat of the previous mob stays on its nameplate for **1 second** before disappearing, instead of vanishing at once (the data is no longer refreshed, so it is not kept longer). Adjust it with "Keep Threat After Target Loss (seconds, 0 = off)".
 

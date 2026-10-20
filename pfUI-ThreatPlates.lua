@@ -32,6 +32,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   pfUI:UpdateConfig("threatplates", nil, "textsize",   "0")
   pfUI:UpdateConfig("threatplates", nil, "showname",   "1")
   pfUI:UpdateConfig("threatplates", nil, "aggrohp",    "1")
+  pfUI:UpdateConfig("threatplates", nil, "tgtcolor",   "1")
   pfUI:UpdateConfig("threatplates", nil, "warnperc",   "80")
   pfUI:UpdateConfig("threatplates", nil, "hpsecure",   ".2,.8,.2,1")
   pfUI:UpdateConfig("threatplates", nil, "hpwarn",     "1,.55,0,1")
@@ -781,29 +782,65 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
     return nil
   end
 
+  -- no threat data for this mob: tell from its target whether it is on us
+  --   returns "secure" / "danger" (health bar color states) or nil (leave pfUI's color)
+  local function MobTargetState(plate)
+    if not UnitIsUnit then return nil end
+
+    local unit
+    if plate.unit and classicapi then
+      unit = plate.unit
+    else
+      local guid = superwow and GetPlateGuid(plate)
+      if guid then unit = guid elseif plate.istarget then unit = "target" end
+    end
+    if not unit then return nil end
+
+    local ok, exists, ontome, incombat, attackable = pcall(function()
+      local tgt = (unit == "target") and "targettarget" or (unit .. "target")
+      return UnitExists(unit), UnitExists(tgt) and UnitIsUnit(tgt, "player"),
+        UnitAffectingCombat(unit), UnitCanAttack("player", unit) and not UnitIsDead(unit)
+    end)
+    if not ok or not exists or not attackable or not incombat then return nil end
+
+    if C.threatplates.role == "tank" then
+      return ontome and "secure" or "danger"   -- a mob that is not on the tank has been lost
+    end
+    return ontome and "danger" or nil          -- dps / healer: only warn when a mob is on us
+  end
+
   local function UpdatePlate(plate)
     if not plate.health or not plate:IsVisible() then return end
 
     local value, text, r, g, b, a = GetPlateThreat(plate)
-    if not value then return HidePlate(plate) end
-
     local tpw = plate.threatplates
-    if not tpw or tpw.config ~= tp.configversion then tpw = SetupPlate(plate) end
 
-    if C.threatplates.showbar == "1" then
-      tpw.bar:SetValue(value > 100 and 100 or value)
-      tpw.bar:SetStatusBarColor(r, g, b, a)
-      tpw.bar:Show()
-    else
+    if not value then
+      -- no threat information: only the health bar color, from who the mob targets
+      state = nil
+      if C.threatplates.tgtcolor == "1" and C.threatplates.aggrohp == "1" then state = MobTargetState(plate) end
+      if not state then return HidePlate(plate) end
+      if not tpw or tpw.config ~= tp.configversion then tpw = SetupPlate(plate) end
       tpw.bar:Hide()
-    end
-
-    if C.threatplates.showtext == "1" then
-      tpw.text:SetText(text)
-      tpw.text:SetTextColor(r, g, b, 1)
-      tpw.text:Show()
-    else
       tpw.text:Hide()
+    else
+      if not tpw or tpw.config ~= tp.configversion then tpw = SetupPlate(plate) end
+
+      if C.threatplates.showbar == "1" then
+        tpw.bar:SetValue(value > 100 and 100 or value)
+        tpw.bar:SetStatusBarColor(r, g, b, a)
+        tpw.bar:Show()
+      else
+        tpw.bar:Hide()
+      end
+
+      if C.threatplates.showtext == "1" then
+        tpw.text:SetText(text)
+        tpw.text:SetTextColor(r, g, b, 1)
+        tpw.text:Show()
+      else
+        tpw.text:Hide()
+      end
     end
 
     local hp = C.threatplates.aggrohp == "1" and state and colors[state]
@@ -1044,6 +1081,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
       CreateConfig(update, L["Threat Text Size (0 = auto)"], C.threatplates, "textsize")
       CreateConfig(update, L["Tank: Show Next Player Name"], C.threatplates, "showname", "checkbox")
       CreateConfig(update, L["Color Health Bar By Aggro"], C.threatplates, "aggrohp", "checkbox")
+      CreateConfig(update, L["Color Health Bar Without Threat Data (mob target)"], C.threatplates, "tgtcolor", "checkbox")
       CreateConfig(update, L["Warning Threshold (%)"], C.threatplates, "warnperc")
 
       CreateConfig(nil, L["Colors"], nil, nil, "header")

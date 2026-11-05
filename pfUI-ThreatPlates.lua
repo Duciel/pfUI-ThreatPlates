@@ -17,6 +17,9 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   pfUI:UpdateConfig("threatplates", nil, "limit",      "10")
   pfUI:UpdateConfig("threatplates", nil, "share",      "1")
   pfUI:UpdateConfig("threatplates", nil, "cache",      "1")
+  pfUI:UpdateConfig("threatplates", nil, "experimental", "0")
+  pfUI:UpdateConfig("threatplates", nil, "scanage",    "2")
+  pfUI:UpdateConfig("threatplates", nil, "scaninterval", "1")
   pfUI:UpdateConfig("threatplates", nil, "showbar",    "1")
   pfUI:UpdateConfig("threatplates", nil, "barpos",     "ABOVE")
   pfUI:UpdateConfig("threatplates", nil, "baroffset",  "2")
@@ -147,6 +150,11 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   -- threat of targets we just lost (target switched or cleared), kept for a short while
   -- [guid or "n:"..name] = { tank, mine, next, nextperc, expires }
   local recent = {}
+  -- experimental scan: threat lists fetched by briefly targeting other mobs
+  -- [guid] = { guid, name, tank, mine, next, nextperc, time }
+  local scanned = {}
+  local SCANSTALE = 6           -- a scanned list is refreshed one mob at a time, so it lives longer
+  local scan = { state = nil, mute = 0, quiet = 0, nextat = 0 }
 
   -- shared by the group (and our own target list, merged in)
   -- [HEXGUID] = { tank, tanktime, remote, entries = { [player] = { perc, time, rtime } } }
@@ -351,31 +359,42 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
     local _, e = strfind(packet, THREAT_API, 1, true)
     if not e then return end
 
-    if TargetChanged() then ArchiveTarget() end
+    local now = GetTime()
+    local dst = target
+    if scan.state == "wait" then
+      -- reply to the experimental scan: it describes the mob we targeted, not our real target
+      dst = {}
+    elseif now < scan.mute then
+      return -- late reply of an aborted scan: it would land on the restored target
+    elseif TargetChanged() then
+      ArchiveTarget()
+    end
 
-    target.time = GetTime()
-    target.guid = GetTargetGuid()
-    target.name = UnitName("target")
-    target.mine = nil
-    target.tank = nil
-    target.next = nil
-    target.nextperc = nil
-    target.list = {}
+    dst.time = now
+    dst.guid = GetTargetGuid()
+    dst.name = UnitName("target")
+    dst.mine = nil
+    dst.tank = nil
+    dst.next = nil
+    dst.nextperc = nil
+    dst.list = {}
 
     for _, entry in pairs(explode(strsub(packet, e + 1), ";")) do
       local data = explode(entry, ":")
       if data[1] and data[2] and data[3] and data[4] and data[5] then
         local player, istank, perc = data[1], data[2] == "1", tonumber(data[4]) or 0
 
-        if istank then target.tank = player end
-        if player == playername then target.mine = perc end
-        table.insert(target.list, { player, perc, istank, tonumber(data[3]) or 0, data[5] == "1" })
+        if istank then dst.tank = player end
+        if player == playername then dst.mine = perc end
+        table.insert(dst.list, { player, perc, istank, tonumber(data[3]) or 0, data[5] == "1" })
 
-        if player ~= playername and not istank and (not target.nextperc or perc > target.nextperc) then
-          target.next, target.nextperc = player, perc
+        if player ~= playername and not istank and (not dst.nextperc or perc > dst.nextperc) then
+          dst.next, dst.nextperc = player, perc
         end
       end
     end
+
+    if dst ~= target then scan.result = dst end
   end
 
   local function HandleTankModePacket(packet)
@@ -566,6 +585,9 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
     end
     for key, d in pairs(recent) do
       if d.expires < now then recent[key] = nil end
+    end
+    for key, d in pairs(scanned) do
+      if d.time + SCANSTALE < now then scanned[key] = nil end
     end
   end
 
@@ -762,6 +784,13 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
       end
     end
 
+    -- 2b) threat list fetched by the experimental scan
+    local sc = guid and scanned[guid]
+    if sc and sc.tank and sc.time + SCANSTALE > now then
+      local value, text, r, g, b, a = Render(sc.tank, sc.mine, sc.next, sc.nextperc)
+      if value then return value, text, r, g, b, a end
+    end
+
     if not share then return nil end
 
     -- 3) threat list shared by a group member targeting this mob
@@ -909,7 +938,104 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
     return GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0
   end
 
+  -- -------------------------------------------------------------------------
+  -- experimental scan (ClassicAPI): briefly target mobs whose threat is outdated
+  --   one mob per step: TargetUnit(nameplateN) -> ask the server -> restore the target
+  -- -------------------------------------------------------------------------
   tp.lastquery = 0
+
+  local function LastTrack(guid, name)
+    local t = 0
+    local sc = scanned[guid]
+    if sc and sc.time > t then t = sc.time end
+    if target.guid == guid and target.time > t then t = target.time end
+    local rec = lists[HexKey(guid)]
+    if rec and rec.tanktime and rec.tanktime > t then t = rec.tanktime end
+    local d = FindByServerGuid(tanked, guid, name)
+    if d and d.time > t then t = d.time end
+    d = FindByServerGuid(sharedtm, guid, name)
+    if d and d.time > t then t = d.time end
+    return t
+  end
+
+  local function PickScanPlate(now)
+    local age = tonumber(C.threatplates.scanage) or 2
+    if age < .5 then age = .5 end
+
+    local best, besttime, bestguid
+    for plate in pairs(plates) do
+      local unit = plate.unit
+      if unit and plate.health and plate:IsVisible() and not plate.istarget then
+        local guid = GetPlateGuid(plate)
+        if guid and UnitExists(unit) and UnitCanAttack("player", unit) and not UnitIsDead(unit)
+           and not UnitIsPlayer(unit) and UnitAffectingCombat(unit) then
+          local name = plate.original and plate.original.name and plate.original.name:GetText()
+          local t = LastTrack(guid, name)
+          if now - t >= age and (not besttime or t < besttime) then best, besttime, bestguid = plate, t, guid end
+        end
+      end
+    end
+    return best, bestguid
+  end
+
+  local function ScanRestore()
+    if scan.hadtarget then
+      if GetTargetGuid() ~= scan.prev and TargetLastTarget then TargetLastTarget() end
+      if scan.prev and GetTargetGuid() ~= scan.prev then
+        -- last resort: target the previous mob through its nameplate
+        for plate in pairs(plates) do
+          if plate.unit and GetPlateGuid(plate) == scan.prev then TargetUnit(plate.unit) break end
+        end
+      end
+    elseif UnitExists("target") then
+      ClearTarget()
+    end
+  end
+
+  local function ScanFinish(now)
+    local res = scan.result
+    if res and res.guid == scan.expect and res.tank then
+      scanned[scan.expect] = res
+      scan.mute = 0
+    else
+      scan.mute = now + .8
+    end
+
+    ScanRestore()
+    scan.state, scan.result = nil, nil
+    scan.quiet = now + .3 -- PLAYER_TARGET_CHANGED fires a bit later
+    scan.nextat = now + (tonumber(C.threatplates.scaninterval) or 1)
+  end
+
+  local function ScanStart(now)
+    if now - tp.lastquery < .6 then return end -- the reply to a regular query could still be on its way
+    if CastingBarFrame and (CastingBarFrame.casting or CastingBarFrame.channeling) then return end
+    if SpellIsTargeting and SpellIsTargeting() then return end
+
+    local plate, guid = PickScanPlate(now)
+    if not plate then
+      scan.nextat = now + .25
+      return
+    end
+
+    scan.hadtarget = UnitExists("target") and true or nil
+    scan.prev = scan.hadtarget and GetTargetGuid() or nil
+    scan.expect, scan.result = guid, nil
+
+    TargetUnit(plate.unit)
+    if GetTargetGuid() ~= guid then
+      ScanRestore()
+      scan.quiet = now + .3
+      scan.nextat = now + 1
+      return
+    end
+
+    scan.state = "wait"
+    scan.deadline = now + .7
+    tp.lastquery = now
+    SendAddonMessage(UDTS, "limit=" .. (tonumber(C.threatplates.limit) or 10), GetNumRaidMembers() > 0 and "RAID" or "PARTY")
+  end
+
   tp.lastdraw = 0
   tp.lastclean = 0
   tp:SetScript("OnUpdate", function()
@@ -918,11 +1044,20 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
     -- query the server
     local interval = tonumber(C.threatplates.interval) or 1
     if interval < .3 then interval = .3 end
-    if now - this.lastquery >= interval then
+    if scan.state ~= "wait" and now - this.lastquery >= interval then
       this.lastquery = now
       if InGroup() and UnitAffectingCombat("player") then
         local limit = tonumber(C.threatplates.limit) or 10
         SendAddonMessage(UDTS, "limit=" .. limit, GetNumRaidMembers() > 0 and "RAID" or "PARTY")
+      end
+    end
+
+    -- experimental: refresh the threat of mobs we have no recent data for
+    if C.threatplates.experimental == "1" and classicapi and TargetUnit then
+      if scan.state == "wait" then
+        if scan.result or now >= scan.deadline then ScanFinish(now) end
+      elseif now >= scan.nextat and InGroup() and UnitAffectingCombat("player") and not UnitIsDead("player") then
+        ScanStart(now)
       end
     end
 
@@ -973,7 +1108,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
         tankedraw = {}
       end
 
-      ShareTarget()
+      if scan.state ~= "wait" and GetTime() >= scan.mute then ShareTarget() end
       if tankmode then ShareTankMode() end
 
       tp.lastdraw = 0 -- redraw right away
@@ -993,11 +1128,15 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
       CleanRelayTo()
 
     elseif event == "PLAYER_TARGET_CHANGED" then
+      -- our own scan changes the target too: that is not a real target change
+      if scan.state or GetTime() < scan.quiet then return end
       -- the old target's data is kept briefly (cache option), then it is dropped
       if TargetChanged() then ArchiveTarget() end
       tp.lastdraw = 0
 
     elseif event == "PLAYER_REGEN_ENABLED" then
+      if scan.state then ScanFinish(GetTime()) end
+      for k in pairs(scanned) do scanned[k] = nil end
       target.time = 0
       for k in pairs(recent) do recent[k] = nil end
       for k in pairs(tanked) do tanked[k] = nil end
@@ -1011,6 +1150,8 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   -- -------------------------------------------------------------------------
   tp.configversion = 0
   function tp:UpdateConfig()
+    -- scan switched off while a mob is targeted: give the target back
+    if scan.state and C.threatplates.experimental ~= "1" then ScanFinish(GetTime()) end
     colors.low   = { GetStringColor(C.threatplates.colorlow) }
     colors.mid   = { GetStringColor(C.threatplates.colormid) }
     colors.high  = { GetStringColor(C.threatplates.colorhigh) }
@@ -1066,6 +1207,9 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
       CreateConfig(update, L["Threat Entries Requested"], C.threatplates, "limit")
       CreateConfig(update, L["Share Threat With Group"], C.threatplates, "share", "checkbox")
       CreateConfig(update, L["Keep Threat After Target Loss (seconds, 0 = off)"], C.threatplates, "cache")
+      CreateConfig(update, L["Experimental: Scan Other Mobs (switches target!)"], C.threatplates, "experimental", "checkbox")
+      CreateConfig(update, L["Scan: Refresh Threat Older Than (seconds)"], C.threatplates, "scanage")
+      CreateConfig(update, L["Scan: Seconds Between Two Mobs"], C.threatplates, "scaninterval")
 
       CreateConfig(nil, L["Display"], nil, nil, "header")
       CreateConfig(update, L["Show Threat Bar"], C.threatplates, "showbar", "checkbox")

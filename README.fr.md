@@ -69,14 +69,17 @@ Quand personne ne te donne la menace d'un mob, sa barre de vie est quand même c
 Nécessite ClassicAPI (ou SuperWoW) pour lire la cible du mob sur toutes les nameplates ; sans eux, seule ta cible actuelle est couverte.
 
 ### Expérimental : scanner les autres mobs (désactivé par défaut, ClassicAPI uniquement)
-Le serveur ne donne la menace que de ta cible : cette option **cible brièvement d'autres mobs** pour lire la leur. À chaque pas (« Scan: Seconds Between Two Mobs », 1 s par défaut), elle choisit **un** mob hostile en combat dont la dernière menace connue date de plus de « Scan: Refresh Threat Older Than (seconds) » (2 s par défaut), le cible via sa nameplate, envoie une requête, puis te rend ta cible précédente dès que la réponse arrive (environ 0,1-0,3 s, 0,7 s au maximum). Le résultat s'affiche comme n'importe quelle menace et reste valable 6 s. Il n'est jamais partagé avec le groupe.
+Le serveur ne donne la menace que de ta cible : cette option **cible brièvement d'autres mobs** pour lire la leur. À chaque pas (« Scan: Seconds Between Two Mobs », 1 s par défaut), elle choisit **un** mob hostile, lui-même en combat, dont la dernière menace connue date de plus de « Scan: Refresh Threat Older Than (seconds) » (2 s par défaut), le cible via sa nameplate, envoie une requête, puis te rend ta cible précédente dès que la réponse arrive (environ 0,1-0,3 s, 0,7 s au maximum).
 
-Le scan ne tourne qu'en combat et en groupe, jamais pendant un incantation, et ignore le mob que tu cibles déjà. Avec beaucoup de mobs, chacun est rafraîchi tous les N pas : accélère le pas ou relève le seuil d'âge selon ton goût.
+- **Seulement quand c'est utile :** en combat et en groupe. Un mob dont un équipier a partagé la menace (ou que tu as déjà lue) depuis moins que le seuil est ignoré, comme le mob que tu cibles déjà.
+- **Les incantations ne gênent pas :** la cible d'un sort est fixée au début de l'incantation, changer de cible pendant ne la modifie pas.
+- **Durée d'affichage :** une liste scannée reste affichée le seuil **+ 1 s** (3 s par défaut), pour que le chiffre soit encore là quand le prochain scan de ce mob revient. Elle n'est jamais partagée avec le groupe.
+- **Beaucoup de mobs :** chacun est rafraîchi tous les N pas ; accélère le pas ou relève le seuil selon ton goût.
 
 **Effets de bord, à lire :** chaque pas change deux fois ta cible, ce qui peut jouer le son de ciblage, faire clignoter le cadre de cible, déclencher les addons qui réagissent au changement de cible et, selon le client, interrompre l'attaque auto / tir auto ou perturber des macros. À tester sur un mannequin avant de t'y fier.
 
 ### Cache court à la perte de cible
-Quand tu changes ou perds ta cible, la dernière menace connue de l'ancien mob reste affichée **1 seconde** sur sa nameplate avant de disparaître, au lieu de s'effacer d'un coup (la donnée n'est plus rafraîchie, donc pas gardée plus longtemps). Réglable avec « Keep Threat After Target Loss (seconds, 0 = off) ».
+Quand tu changes ou perds ta cible, la dernière menace connue de l'ancien mob reste affichée sur sa nameplate avant de disparaître, au lieu de s'effacer d'un coup. C'est l'option « Keep Threat After Target Loss (seconds, 0 = off) » (3 s par défaut) ; elle est distincte de « Query Interval (seconds) ». Avec le scan expérimental activé, elle est automatiquement au moins aussi longue qu'une liste scannée (seuil + 1 s), pour que la barre ne disparaisse pas avant que le scan la rafraîchisse.
 
 ## Partage dans le groupe (compatible TWThreat)
 Option « Partager la menace avec le groupe » (activée par défaut). Le partage utilise **le canal et le format de relais de TWThreat** (préfixe `TWT`, version octo-addons 1.3.0-octo1 et suivantes) :

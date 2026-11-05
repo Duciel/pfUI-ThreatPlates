@@ -16,7 +16,12 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   pfUI:UpdateConfig("threatplates", nil, "interval",   "1")
   pfUI:UpdateConfig("threatplates", nil, "limit",      "10")
   pfUI:UpdateConfig("threatplates", nil, "share",      "1")
-  pfUI:UpdateConfig("threatplates", nil, "cache",      "1")
+  pfUI:UpdateConfig("threatplates", nil, "cache",      "3")
+  -- 1.9.0: 1 s was too short, the default is now 3 s (one time migration of the old default)
+  if not C.threatplates.cache_v2 then
+    if C.threatplates.cache == "1" then C.threatplates.cache = "3" end
+    C.threatplates.cache_v2 = "1"
+  end
   pfUI:UpdateConfig("threatplates", nil, "experimental", "0")
   pfUI:UpdateConfig("threatplates", nil, "scanage",    "2")
   pfUI:UpdateConfig("threatplates", nil, "scaninterval", "1")
@@ -153,7 +158,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
   -- experimental scan: threat lists fetched by briefly targeting other mobs
   -- [guid] = { guid, name, tank, mine, next, nextperc, time }
   local scanned = {}
-  local SCANSTALE = 6           -- a scanned list is refreshed one mob at a time, so it lives longer
+  local GRACE = 1               -- seconds added to the scan threshold: time to fetch the next list
   local scan = { state = nil, mute = 0, quiet = 0, nextat = 0 }
 
   -- shared by the group (and our own target list, merged in)
@@ -331,14 +336,33 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
     return nil
   end
 
-  -- keep the list of the target we are about to lose for C.threatplates.cache seconds
+  local function ScanOn()
+    return C.threatplates.experimental == "1" and classicapi and TargetUnit and true or nil
+  end
+
+  -- how long a scanned list is displayed: the refresh threshold plus a margin, so the
+  -- number is still there when the next scan of that mob comes back
+  local function ScanLife()
+    local age = tonumber(C.threatplates.scanage) or 2
+    if age < .5 then age = .5 end
+    return age + GRACE
+  end
+
+  -- how long the list of a lost target stays displayed ("cache" option; 0 = off).
+  -- With the scan on it is at least as long as a scanned list, since the scan refreshes it.
+  local function Linger()
+    local linger = tonumber(C.threatplates.cache) or 0
+    if linger > 0 and ScanOn() and ScanLife() > linger then linger = ScanLife() end
+    return linger
+  end
+
+  -- keep the list of the target we are about to lose for Linger() seconds
   local function ArchiveTarget()
     local now = GetTime()
-    local linger = tonumber(C.threatplates.cache) or 0
+    local linger = Linger()
     local key = RecentKey(target.guid, target.name)
     if linger > 0 and key and target.tank and target.time + STALE > now then
       local expires = now + linger
-      if target.time + STALE < expires then expires = target.time + STALE end
       recent[key] = {
         tank = target.tank, mine = target.mine, next = target.next,
         nextperc = target.nextperc, expires = expires,
@@ -587,7 +611,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
       if d.expires < now then recent[key] = nil end
     end
     for key, d in pairs(scanned) do
-      if d.time + SCANSTALE < now then scanned[key] = nil end
+      if d.time + ScanLife() < now then scanned[key] = nil end
     end
   end
 
@@ -786,7 +810,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
 
     -- 2b) threat list fetched by the experimental scan
     local sc = guid and scanned[guid]
-    if sc and sc.tank and sc.time + SCANSTALE > now then
+    if sc and sc.tank and sc.time + ScanLife() > now then
       local value, text, r, g, b, a = Render(sc.tank, sc.mine, sc.next, sc.nextperc)
       if value then return value, text, r, g, b, a end
     end
@@ -1009,7 +1033,6 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
 
   local function ScanStart(now)
     if now - tp.lastquery < .6 then return end -- the reply to a regular query could still be on its way
-    if CastingBarFrame and (CastingBarFrame.casting or CastingBarFrame.channeling) then return end
     if SpellIsTargeting and SpellIsTargeting() then return end
 
     local plate, guid = PickScanPlate(now)
@@ -1053,7 +1076,7 @@ pfUI:RegisterModule("threatplates", "vanilla", function()
     end
 
     -- experimental: refresh the threat of mobs we have no recent data for
-    if C.threatplates.experimental == "1" and classicapi and TargetUnit then
+    if ScanOn() then
       if scan.state == "wait" then
         if scan.result or now >= scan.deadline then ScanFinish(now) end
       elseif now >= scan.nextat and InGroup() and UnitAffectingCombat("player") and not UnitIsDead("player") then

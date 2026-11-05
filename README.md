@@ -66,14 +66,17 @@ When nobody gives you threat for a mob, its health bar is still colored from **w
 Needs ClassicAPI (or SuperWoW) to read the mob's target on any nameplate; without them only your current target is covered.
 
 ### Experimental: scan other mobs (off by default, ClassicAPI only)
-The server only gives threat for your target, so this option **briefly targets other mobs** to read theirs. Every "Scan: Seconds Between Two Mobs" (1 s by default) it picks **one** hostile mob in combat whose last known threat is older than "Scan: Refresh Threat Older Than (seconds)" (2 s by default), targets it through its nameplate, sends one request, then gives your previous target back as soon as the reply arrives (about 0.1-0.3 s, 0.7 s at most). The result is shown like any other threat and kept for 6 s. It is never shared with the group.
+The server only gives threat for your target, so this option **briefly targets other mobs** to read theirs. Every "Scan: Seconds Between Two Mobs" (1 s by default) it picks **one** hostile mob that is itself in combat and whose last known threat is older than "Scan: Refresh Threat Older Than (seconds)" (2 s by default), targets it through its nameplate, sends one request, then gives your previous target back as soon as the reply arrives (about 0.1-0.3 s, 0.7 s at most).
 
-It only runs in combat and in a group, never while you are casting, and the mob you already target is skipped. With many mobs each one is refreshed every N steps, so raise the step speed or the age threshold to taste.
+- **Only when useful:** in combat and in a group. A mob whose threat a groupmate shared (or that you already read) less than the threshold ago is skipped, and so is the mob you already target.
+- **Casting is fine:** a spell's target is fixed when the cast starts, so switching target during a cast does not change it.
+- **Display time:** a scanned list is displayed for the threshold **+ 1 s** (3 s with the default), so the number is still there when the next scan of that mob comes back. It is never shared with the group.
+- **Many mobs:** each one is refreshed every N steps; speed up the step or raise the threshold to taste.
 
 **Side effects, please read:** each step changes your target twice, which can play the target sound, flicker the target frame, trigger addons that react to target changes and, depending on the client, interrupt auto-attack / auto-shot or retarget macros. Test it on a dummy before relying on it.
 
 ### Short cache when you lose a target
-When you switch or clear your target, the last known threat of the previous mob stays on its nameplate for **1 second** before disappearing, instead of vanishing at once (the data is no longer refreshed, so it is not kept longer). Adjust it with "Keep Threat After Target Loss (seconds, 0 = off)".
+When you switch or clear your target, the last known threat of the previous mob stays on its nameplate before disappearing, instead of vanishing at once. This is the "Keep Threat After Target Loss (seconds, 0 = off)" option (3 s by default); it is separate from "Query Interval (seconds)". With the experimental scan on, it is automatically at least as long as a scanned list (threshold + 1 s), so the bar does not disappear before the scan refreshes it.
 
 ## Raw server data
 Every X seconds in combat and in a group the addon sends the `TWT_UDTSv4_TM` request (like TWThreat in tank mode). The server answers with:
